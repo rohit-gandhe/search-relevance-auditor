@@ -14,7 +14,9 @@ public enum Stage {
     REINDEXED(":arrows_counterclockwise:", "re-indexed"),
     VERIFIED(":bar_chart:", "re-evaluated"),
     RECORDED(":ledger:", "written to the sheet"),
-    PUBLISHED(":octocat:", "pull request opened"),
+    // :octocat: is a GitHub emoji, not a Slack one — it renders as literal text
+    // in the channel. Every emoji here has to exist in Slack's standard set.
+    PUBLISHED(":twisted_rightwards_arrows:", "pull request opened"),
     ARCHIVED(":package:", "archived");
 
     private final String emoji;
