@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Relevance Auditor async plane: an SNS topic that Slack approvals publish to, an
+  SQS queue the enrichment worker consumes, and a dead-letter queue that quarantines
+  poisoned proposals instead of stalling the batch.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: relevance-auditor
+    Description: Prefix for every resource name.
+
+  VisibilityTimeout:
+    Type: Number
+    Default: 180
+    MinValue: 30
+    Description: >
+      Must exceed how long the work actually takes (extract, re-index, re-evaluate
+      is 30-90s). Too short and SQS redelivers a message that is still in flight.
+
+  MaxReceiveCount:
+    Type: Number
+    Default: 3
+    MinValue: 1
+    Description: Receives before a message is dead-lettered.
+
+  MessageRetentionPeriod:
+    Type: Number
+    Default: 345600      # 4 days
+    Description: Seconds SQS keeps an unconsumed message.
+
+Resources:
+
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-enrichment-dlq'
+      MessageRetentionPeriod: 1209600     # 14 days: a failure needs time to be looked at
+      Tags:
+        - { Key: project, Value: !Ref ProjectName }
+        - { Key: role, Value: dead-letter }
+
+  EnrichmentQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${ProjectName}-enrichment'
+      VisibilityTimeout: !Ref VisibilityTimeout
+      MessageRetentionPeriod: !Ref MessageRetentionPeriod
+      ReceiveMessageWaitTimeSeconds: 20   # long poll: far fewer empty receives
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: !Ref MaxReceiveCount
+      Tags:
+        - { Key: project, Value: !Ref ProjectName }
+        - { Key: role, Value: worker-input }
+
+  DecisionsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${ProjectName}-decisions'
+      DisplayName: Relevance Auditor approval decisions
+      Tags:
+        - { Key: project, Value: !Ref ProjectName }
+
+  # Scoped to this one topic rather than sns.amazonaws.com at large, so another
+  # account's topic cannot write into our queue.
+  QueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues: [ !Ref EnrichmentQueue ]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowDecisionsTopicOnly
+            Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt EnrichmentQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref DecisionsTopic
+
+  DecisionsSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref DecisionsTopic
+      Protocol: sqs
+      Endpoint: !GetAtt EnrichmentQueue.Arn
+      # Without this every payload arrives wrapped in SNS envelope JSON and the
+      # worker's Decision deserialisation fails on the first message.
+      RawMessageDelivery: true
+
+  # A message here means a human needs to look. Visible in the console during the
+  # demo when you fail one enrichment on purpose.
+  DeadLetterAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-dlq-not-empty'
+      AlarmDescription: A proposal failed three times and was quarantined.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt DeadLetterQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  QueueUrl:
+    Description: ENRICHMENT_QUEUE_URL
+    Value: !Ref EnrichmentQueue
+  QueueArn:
+    Value: !GetAtt EnrichmentQueue.Arn
+  DlqUrl:
+    Description: DEAD_LETTER_QUEUE_URL
+    Value: !Ref DeadLetterQueue
+  DlqArn:
+    Value: !GetAtt DeadLetterQueue.Arn
+  TopicArn:
+    Description: DECISIONS_TOPIC_ARN
+    Value: !Ref DecisionsTopic
