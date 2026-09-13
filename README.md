@@ -2,6 +2,12 @@
 
 An agent that finds abandoned searches, proposes a fix with evidence, measures whether it will actually help before a human sees it, submits a solution on slack, fixes (if approved), first in the live index and creates a PR for permanently capturing the rule (reindexing), while maintaing an audit log in Google Sheets.
 
+![Java 21](https://img.shields.io/badge/Java-21-e76f00)
+![Lucene 9.11](https://img.shields.io/badge/Lucene-9.11-4b8bbe)
+![88 tests](https://img.shields.io/badge/tests-88%20passing-2ea44f)
+![no credentials](https://img.shields.io/badge/offline%20path-no%20credentials-2ea44f)
+![apps](https://img.shields.io/badge/Slack%20%C2%B7%20Sheets%20%C2%B7%20GitHub-3%20external%20apps-6f42c1)
+
 **[▶ Demo video (2 min)](Placeholder)**
 
 ## The problem
@@ -12,10 +18,12 @@ An agent that finds abandoned searches, proposes a fix with evidence, measures w
 
 The following results are from the WANDS dataset that has the human relevance judgements from Wayfair's own annotators, from which NDCG@10 is computed (the standard way to measure relevance on a 10 product resultset), which gives us the ***eval*** set.
 
-```
-toddler couch fold out    NDCG@10  0.4045 → 0.6796   (+0.2751)
-every other query                                      unchanged
-mean across 9 queries              0.6949 → 0.7254   (+0.0306)
+```diff
+- toddler couch fold out    NDCG@10  0.4045
++ toddler couch fold out    NDCG@10  0.6796            (+0.2751)
+  every other query                                    unchanged
+- mean across 9 queries              0.6949
++ mean across 9 queries              0.7254            (+0.0306)
 ```
 
 Five of the ten results change. All five are kids sofas that were always in the
@@ -32,10 +40,10 @@ before a judge asks is stronger than being caught at it.
 The model proposes different things on different runs. Across two consecutive live
 runs, three candidates came back identical:
 
-```
-chair   → armchair   -0.2851 worst   REJECTED
-toddler → kids       +0.0306 mean    PROPOSED
-couch   → sofa       -0.0842 worst   REJECTED
+```diff
+- chair   → armchair   -0.2851 worst   REJECTED
++ toddler → kids       +0.0306 mean    PROPOSED
+- couch   → sofa       -0.0842 worst   REJECTED
 ```
 
 The fourth was different every time:
@@ -48,8 +56,10 @@ run two   fold     → flip      +0.0127 mean   PROPOSED
 Without a gate the demo swings on whatever the model happened to say. With one, the
 swing is absorbed and the same rule survives.
 
-`couch → sofa` is a textbook synonym and it improves the average. It costs −0.0842
-on "chaise lounge couch". **A shopper does not experience the average.**
+> [!IMPORTANT]
+> `couch → sofa` is a textbook synonym and it improves the average. It costs
+> −0.0842 on "chaise lounge couch", so it is rejected and no human is ever asked
+> about it. **A shopper does not experience the average.**
 
 Two required conditions: the mean goes up, and no individual query goes down.
 Validation runs on a throwaway index against a detached rule store, so nothing a
@@ -57,26 +67,43 @@ human has not approved is ever written.
 
 ## The loop
 
-```
-evaluate      9 evaluated queries, NDCG@10
-   ↓
-diagnose      count words: how rare is the shopper's word, what does the
-              catalogue say instead for the products the query MISSED,
-              and is that word about those products or about furniture
-   ↓
-propose       Claude reads the counts and names the catalogue's word
-   ↓
-measure       throwaway index per candidate, re-score all 9 queries
-              gain AND no query worse, or it's never sent to a human
-   ↓
-approve       Slack card with the evidence -> a human clicks
-   ↓
-queue         SNS → SQS, DLQ after 3 attempts
-   ↓
-apply         rule applied, index rebuilt, all 9 queries re-scored,
-              the result checked against what the gate predicted
-   ↓
-record        Google Sheets row | GitHub pull request | Slack archive trail
+```mermaid
+flowchart TB
+    E["<b>Evaluate</b><br/>9 judged queries"]
+    D["<b>Diagnose</b><br/>count the words in titles"]
+    P["<b>Propose</b><br/>Claude, given the counts"]
+    M{"<b>Measure the rule</b><br/>throwaway index, re-score<br/>gain AND no query worse"}
+    X["Discarded<br/>no human ever sees it"]
+    A["<b>Approve</b><br/>Slack card, socket mode"]
+    Q["SNS to SQS<br/>DLQ x3, idempotent, pid-locked"]
+    W["<b>Apply + re-index</b><br/>617 products"]
+    R["<b>Re-evaluate</b><br/>measured vs predicted"]
+
+    E --> D --> P --> M
+    M -->|fails| X
+    M -->|passes| A --> Q --> W --> R
+
+    subgraph RECORD["recorded in three external apps"]
+        direction LR
+        SH[("Google Sheets<br/>one row per decision")]
+        AR["Slack archive<br/>trail + measured delta"]
+        GH["GitHub PR<br/>rules as code"]
+        SH ~~~ AR ~~~ GH
+    end
+
+    R --> RECORD
+    R -.->|"the next pass starts from the new score"| E
+
+    classDef gate  fill:#fff7ed,stroke:#c2410c,stroke-width:2px,color:#9a3412
+    classDef human fill:#ecfdf5,stroke:#0f766e,stroke-width:2px,color:#115e59
+    classDef ext   fill:#f0fdfa,stroke:#0f766e,stroke-width:1.5px,color:#115e59
+    classDef dead  fill:#fafafa,stroke:#a3a3a3,stroke-dasharray:4 3,color:#525252
+    classDef plain fill:#ffffff,stroke:#9ca3af,color:#111827
+    class M gate
+    class A human
+    class SH,AR,GH ext
+    class X dead
+    class E,D,P,Q,W,R plain
 ```
 
 ## Architecture
@@ -90,7 +117,7 @@ Three processes, one queue, three external apps.
 | `worker`  | drains SQS, applies, re-indexes, re-scores, records | single instance, pid-locked |
 
 **Why a queue at all.** Slack allows three seconds to acknowledge a click.
-The work takes 4.21. Acknowledge, enqueue, answer later.
+The work takes 6.64. Acknowledge, enqueue, answer later.
 
 **Reliability**
 
@@ -133,6 +160,10 @@ empty trail and fills it on the first run.
 
 ## Notes
 
+> [!NOTE]
+> Every one of these is a question a judge would ask. Volunteering them costs
+> nothing and it is what makes the measurement claims land.
+
 - The slice is **curated** — 617 products and 9 queries drawn from WANDS, not the
   whole catalogue.
 - The product images are **renders**, not photographs. Illustration only. Nothing
@@ -144,7 +175,12 @@ empty trail and fills it on the first run.
 
 ## Run it locally
 
-**Prerequisite: Java 21.** 
+> [!TIP]
+> The offline path below needs **no credentials at all** and verifies the entire
+> claim: the tests, the eval, and the two-panel UI with all 617 product renders.
+> Credentials are only needed to drive the live Slack → SQS → Sheets → GitHub loop.
+
+**Prerequisite: Java 21.**
 
 ### Without credentials
 
@@ -183,6 +219,12 @@ cp .env.example .env     # then fill in the six values below
 ./gradlew run --args="propose"   # audit, then post what survives to Slack
 ./scripts/snapshot.sh baseline   # back to zero
 ```
+
+> [!WARNING]
+> Start the three processes with `demo.sh`, never by hand. A second worker
+> silently takes half the approvals — with older code and a stale rule set — and
+> it presents as "Slack is failing", intermittently. Check `status` reports
+> `procs : 3` before you rely on it.
 
 ## Sources
 
