@@ -9,6 +9,7 @@ import labs.augmentor.auditor.audit.SynonymStore;
 import labs.augmentor.auditor.audit.VocabularyGapFinder;
 import labs.augmentor.auditor.eval.EvalRunner;
 import labs.augmentor.auditor.eval.Scorecard;
+import labs.augmentor.auditor.eval.Ndcg;
 import labs.augmentor.auditor.ingest.Catalogues;
 import labs.augmentor.auditor.model.*;
 import labs.augmentor.auditor.model.Hit;
@@ -130,12 +131,30 @@ public final class SearchApi {
         Set<String> baselineIds = new HashSet<>();
         baseline.forEach(h -> baselineIds.add(h.id()));
 
-        return Map.of(
-                "query", query,
-                "expansions", after.expansionsFor(query),
-                "before", baseline.stream().map(h -> view(h, false)).toList(),
-                "after", candidate.stream().map(h -> view(h, !baselineIds.contains(h.id()))).toList(),
-                "newCount", candidate.stream().filter(h -> !baselineIds.contains(h.id())).count());
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("query", query);
+        out.put("expansions", after.expansionsFor(query));
+        out.put("before", baseline.stream().map(h -> view(h, false)).toList());
+        out.put("after", candidate.stream().map(h -> view(h, !baselineIds.contains(h.id()))).toList());
+        out.put("newCount", candidate.stream().filter(h -> !baselineIds.contains(h.id())).count());
+
+        // Only a judged query has an answer key. Anything typed by hand is a real
+        // search but an unscoreable one, and a number invented for it would be the
+        // one dishonest thing on the page.
+        JudgedQuery judged = judgedFor(query);
+        out.put("ndcgBefore", judged == null ? null : round(Ndcg.at(10, ids(baseline), judged)));
+        out.put("ndcgAfter", judged == null ? null : round(Ndcg.at(10, ids(candidate), judged)));
+        return out;
+    }
+
+    private JudgedQuery judgedFor(String query) {
+        return catalogue.queries().stream()
+                .filter(q -> q.query().equalsIgnoreCase(query.trim()))
+                .findFirst().orElse(null);
+    }
+
+    private static List<String> ids(List<Hit> hits) {
+        return hits.stream().map(Hit::id).toList();
     }
 
     private static Map<String, Object> view(Hit hit, boolean isNew) {

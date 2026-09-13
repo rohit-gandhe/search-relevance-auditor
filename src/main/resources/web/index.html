@@ -38,6 +38,11 @@
   .panel.before { --panel-bg: #2b151a; --panel-line: #5d323b; --panel-card: #1f1014; --tint: #f0a79f; }
   .panel.after  { --panel-bg: #122a1d; --panel-line: #2f6146; --panel-card: #0d1e15; --tint: #8fe0b4; }
   .panel h2 { font-size: 13px; margin: 0 0 4px; font-weight: 600; color: var(--tint, var(--ink)); }
+  .phead { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .phead h2 { margin: 0; }
+  .ndcg { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+      color: var(--dim); letter-spacing: .02em; white-space: nowrap; }
+  .ndcg b { color: var(--tint, var(--ink)); font-size: 13px; font-weight: 600; }
   .panel .note { color: var(--dim); font-size: 12px; margin-bottom: 14px; min-height: 18px; }
   .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
   @media (max-width: 1240px) { .grid { grid-template-columns: 1fr; } }
@@ -111,12 +116,14 @@
 
   <div class="panels">
     <section class="panel before">
-      <h2>Today</h2>
+      <div class="phead"><h2>Today</h2>
+        <span class="ndcg">NDCG@10 <b id="nA">—</b></span></div>
       <div class="note" id="noteA">the index as it ships</div>
       <div class="grid" id="a"></div>
     </section>
     <section class="panel after">
-      <h2>With approved rules</h2>
+      <div class="phead"><h2>With approved rules</h2>
+        <span class="ndcg">NDCG@10 <b id="nB">—</b></span></div>
       <div class="note" id="noteB">nothing approved yet — the panels are identical</div>
       <div class="grid" id="b"></div>
     </section>
@@ -154,6 +161,9 @@ async function search(q) {
   const r = await (await fetch('/api/search?q=' + encodeURIComponent(q))).json();
   $('#a').innerHTML = r.before.map(hit).join('');
   $('#b').innerHTML = r.after.map(hit).join('');
+  const score = v => (v === null || v === undefined) ? '—' : v.toFixed(4);
+  $('#nA').textContent = score(r.ndcgBefore);
+  $('#nB').textContent = score(r.ndcgAfter);
   $('#noteA').textContent = 'the index as it ships';
   $('#noteB').textContent = r.newCount
     ? `${r.newCount} of ${r.after.length} results are new` +
