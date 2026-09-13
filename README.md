@@ -8,7 +8,7 @@ An agent that finds abandoned searches, proposes a fix with evidence, measures w
 ![no credentials](https://img.shields.io/badge/offline%20path-no%20credentials-2ea44f)
 ![apps](https://img.shields.io/badge/Slack%20%C2%B7%20Sheets%20%C2%B7%20GitHub-3%20external%20apps-6f42c1)
 
-**[▶ Demo video (2 min)](Placeholder)**
+**[▶ Watch the demo (2 min)](https://youtu.be/FQJCryEXW04)**
 
 ## The problem
 
