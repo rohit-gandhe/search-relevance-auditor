@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relevance Auditor</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --line: #262b35; --ink: #e6e8ee;
+    --dim: #8b93a7; --accent: #5b9dff; --good: #45c08a; --bad: #e2695f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif; }
+  header { padding: 20px 28px; border-bottom: 1px solid var(--line); display: flex;
+           align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .01em; }
+  .sub { color: var(--dim); font-size: 13px; }
+  main { padding: 20px 28px 60px; }
+  form { display: flex; gap: 10px; margin-bottom: 6px; }
+  input[type=search] { flex: 1; max-width: 520px; background: var(--panel); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+  button { background: var(--accent); color: #05070c; border: 0; border-radius: 8px;
+    padding: 10px 16px; font-weight: 600; cursor: pointer; font-size: 14px; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 22px; }
+  .chip { background: var(--panel); border: 1px solid var(--line); color: var(--dim);
+    border-radius: 999px; padding: 5px 12px; cursor: pointer; font-size: 13px; }
+  .chip:hover { color: var(--ink); border-color: var(--accent); }
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 1100px) { .panels { grid-template-columns: 1fr; } }
+  /* Muted, low-saturation hues. The panels sit behind product renders, so the
+     tint has to separate them at a glance without competing with the photography
+     or shifting how a sofa's colour reads. Colour is redundant here, never the
+     only signal: the panels are also labelled and positioned, and "new" carries a
+     word as well as a hue. */
+  .panel { background: var(--panel-bg, var(--panel)); border: 1px solid var(--panel-line, var(--line));
+           border-radius: 12px; padding: 16px; }
+  .panel.before { --panel-bg: #2b151a; --panel-line: #5d323b; --panel-card: #1f1014; --tint: #f0a79f; }
+  .panel.after  { --panel-bg: #122a1d; --panel-line: #2f6146; --panel-card: #0d1e15; --tint: #8fe0b4; }
+  .panel h2 { font-size: 13px; margin: 0 0 4px; font-weight: 600; color: var(--tint, var(--ink)); }
+  .panel .note { color: var(--dim); font-size: 12px; margin-bottom: 14px; min-height: 18px; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  @media (max-width: 1240px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--panel-card, #12151b); border: 1px solid var(--panel-line, var(--line));
+          border-radius: 10px;
+          overflow: hidden; position: relative; display: flex; flex-direction: column; }
+  .card.new { border-color: rgba(142,240,189,.7); box-shadow: 0 0 0 1px rgba(142,240,189,.3); }
+  .card .shot { position: relative; background: #0b0d12; aspect-ratio: 1 / 1; }
+  .card .shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .rank { position: absolute; top: 8px; left: 8px; background: rgba(8,10,15,.82);
+          backdrop-filter: blur(4px); color: var(--ink); border-radius: 6px;
+          padding: 2px 8px; font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .badge { position: absolute; top: 8px; right: 8px; background: #8ef0bd; color: #04130b;
+           border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: 700;
+           letter-spacing: .03em; text-transform: uppercase; }
+  .card .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+  /* Every card is the same height, so the two panels stay in step row for row.
+     WANDS titles run from "child sofa" to 200 characters of high-chair copy; left
+     to wrap, the grids drift apart and the bottom rows no longer compare. */
+  .card .t { font-size: 13px; line-height: 1.35; height: 2.7em; overflow: hidden;
+             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .card .meta { display: flex; justify-content: space-between; align-items: baseline;
+                gap: 8px; margin-top: auto; padding-top: 6px; }
+  .card .c { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .card .s { color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .timeline { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+              padding: 14px 16px; margin-bottom: 20px; }
+  .timeline h3 { font-size: 12px; margin: 0 0 10px; font-weight: 500; color: var(--dim);
+                 text-transform: uppercase; letter-spacing: .05em; }
+  .timeline ol { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px;
+                 overflow-x: auto; padding-bottom: 4px; }
+  .timeline li { flex: 0 0 auto; background: #12151b; border: 1px solid var(--line);
+                 border-radius: 8px; padding: 7px 11px; font-size: 12px; max-width: 320px; }
+  .timeline li .st { color: var(--accent); font-weight: 600; text-transform: uppercase;
+                     letter-spacing: .04em; font-size: 10.5px; display: block; }
+  .timeline li .ms { color: var(--ink); display: block; margin-top: 2px;
+                     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .timeline li.empty { color: var(--dim); border-style: dashed; }
+  .timeline li.reject { border-color: rgba(226,105,95,.5); }
+  .timeline li.reject .st { color: var(--bad); }
+  .timeline li.win { border-color: rgba(69,192,138,.5); }
+  .timeline li.win .st { color: var(--good); }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 28px; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.total td { font-weight: 600; border-bottom: 0; }
+  .up { color: var(--good); } .down { color: var(--bad); }
+  .gap { color: var(--dim); font-size: 12px; }
+  .rules { color: var(--dim); font-size: 13px; }
+  .rules b { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Relevance Auditor</h1>
+  <span class="sub" id="meta">loading…</span>
+</header>
+<main>
+  <form id="f">
+    <input type="search" id="q" placeholder="search the catalogue" autocomplete="off">
+    <button>Search</button>
+  </form>
+  <div class="chips" id="chips"></div>
+
+  <section class="timeline">
+    <h3>What the agent has done</h3>
+    <ol id="tl"><li class="empty">nothing yet</li></ol>
+  </section>
+
+  <div class="panels">
+    <section class="panel before">
+      <h2>Today</h2>
+      <div class="note" id="noteA">the index as it ships</div>
+      <div class="grid" id="a"></div>
+    </section>
+    <section class="panel after">
+      <h2>With approved rules</h2>
+      <div class="note" id="noteB">nothing approved yet — the panels are identical</div>
+      <div class="grid" id="b"></div>
+    </section>
+  </div>
+
+  <table id="board">
+    <thead><tr><th>judged query</th><th class="n">before</th><th class="n">after</th>
+      <th class="n">delta</th><th>vocabulary gap</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+
+function hit(h, i) {
+  // NOT lazy: twenty images per page is nothing, and a tile that is still
+  // blank when a judge looks at it reads as a broken demo, not a fast one.
+  const img = h.image ? `<img src="${h.image}" alt="${esc(h.title)}" decoding="async">` : '';
+  return `<article class="card${h.isNew ? ' new' : ''}">
+    <div class="shot">${img}
+      <span class="rank">${i + 1}</span>
+      ${h.isNew ? '<span class="badge">new</span>' : ''}
+    </div>
+    <div class="body">
+      <div class="t" title="${esc(h.title)}">${esc(h.title)}</div>
+      <div class="meta"><span class="c">${esc(h.category || '')}</span><span class="s">${h.score.toFixed(2)}</span></div>
+    </div>
+  </article>`;
+}
+const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+async function search(q) {
+  if (!q) return;
+  $('#q').value = q;
+  const r = await (await fetch('/api/search?q=' + encodeURIComponent(q))).json();
+  $('#a').innerHTML = r.before.map(hit).join('');
+  $('#b').innerHTML = r.after.map(hit).join('');
+  $('#noteA').textContent = 'the index as it ships';
+  $('#noteB').textContent = r.newCount
+    ? `${r.newCount} of ${r.after.length} results are new` +
+      (r.expansions.length ? ` · also matching ${r.expansions.join(', ')}` : '')
+    : 'no approved rule touches this query — the panels are identical';
+}
+
+async function board() {
+  const rows = await (await fetch('/api/queries')).json();
+  const rules = await (await fetch('/api/rules')).json();
+  $('#meta').innerHTML = rules.length
+    ? `<span class="rules">${rules.map(r => `<b>${esc(r.from)} → ${esc(r.to)}</b>`).join(' · ')}</span>`
+    : '<span class="rules">no approved rules</span>';
+  $('#board tbody').innerHTML = rows.map(r => {
+    const cls = r.delta > 0.0001 ? 'up' : r.delta < -0.0001 ? 'down' : '';
+    const sign = r.delta > 0.0001 ? '+' : '';
+    return `<tr class="${r.query === 'mean' ? 'total' : ''}">
+      <td>${esc(r.query)}</td><td class="n">${r.before.toFixed(4)}</td>
+      <td class="n">${r.after.toFixed(4)}</td>
+      <td class="n ${cls}">${cls ? sign + r.delta.toFixed(4) : '—'}</td>
+      <td class="gap">${esc(r.gap || '')}</td></tr>`;
+  }).join('');
+  $('#chips').innerHTML = rows.filter(r => r.query !== 'mean')
+    .map(r => `<span class="chip" data-q="${esc(r.query)}">${esc(r.query)}</span>`).join('');
+  document.querySelectorAll('.chip').forEach(c =>
+    c.onclick = () => search(c.dataset.q));
+}
+
+const WIN = new Set(['approved','applied','reindexed','verified','recorded','published','archived']);
+async function timeline() {
+  const rows = await (await fetch('/api/timeline')).json();
+  const el = $('#tl');
+  if (!rows.length) { el.innerHTML = '<li class="empty">nothing yet</li>'; return; }
+  el.innerHTML = rows.slice().reverse().map(r => {
+    const rejected = /reject|fail/i.test(r.message);
+    const cls = rejected ? 'reject' : (WIN.has(r.stage) ? 'win' : '');
+    return `<li class="${cls}" title="${esc(r.message)} — ${esc(r.at)}">
+      <span class="st">${esc(r.stage)}</span><span class="ms">${esc(r.message)}</span></li>`;
+  }).join('');
+  el.scrollLeft = el.scrollWidth;
+}
+setInterval(timeline, 4000);
+
+$('#f').onsubmit = e => { e.preventDefault(); search($('#q').value.trim()); };
+board().then(() => { timeline(); search('toddler couch fold out'); });
+setInterval(() => board().then(() => search($('#q').value.trim())), 8000);
+</script>
+</body>
+</html>
