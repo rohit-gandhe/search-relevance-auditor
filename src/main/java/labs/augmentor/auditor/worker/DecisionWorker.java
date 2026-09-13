@@ -38,6 +38,7 @@ public final class DecisionWorker {
     private final SlackApi slack;
     private final RulePublisher publisher;
     private final Idempotency idempotency;
+    private static final double BASELINE_TOLERANCE = 0.0005;
     private Proposals.Pending pending;                // held so a repaint is not a disk read
     private final String archiveChannel;
     private final int archiveDeleteDelay;
@@ -87,6 +88,22 @@ public final class DecisionWorker {
 
         // The state as it was, measured now rather than trusted from the proposal.
         Scorecard before = score();
+
+        // The proposal measured a baseline seconds ago. If this worker disagrees
+        // about it, this worker is not looking at the catalogue the proposal was
+        // made against — most often because a previous rule is still in memory
+        // after a restart that raced the process it replaced. Left alone that
+        // surfaces as a confident +0.0000 in the audit row, which is the one
+        // number in this system that must never be quietly wrong.
+        double drift = Math.abs(before.mean() - decision.baselineMean());
+        if (drift > BASELINE_TOLERANCE) {
+            RunLog.record("verified", String.format(
+                    "baseline drift: the worker measured %.4f, the proposal measured %.4f"
+                            + " — the rule set is not what it was when this was proposed",
+                    before.mean(), decision.baselineMean()),
+                    Map.of("workerBaseline", before.mean(),
+                           "proposalBaseline", decision.baselineMean()));
+        }
 
         boolean applied = false;
         if (decision.isApproval()) {

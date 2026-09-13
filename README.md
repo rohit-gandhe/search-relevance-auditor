@@ -103,27 +103,33 @@ The work takes 4.21. Acknowledge, enqueue, answer later.
   against a detached rule store. The live store is untouched until a human clicks.
 - *The claim is checked, not asserted* — after the real rebuild the measured
   delta is compared against what the gate predicted. Both were +0.0306.
-- *87 tests*, no credentials required.
+- *88 tests*, no credentials required.
 
 ## One real run, on real infrastructure
 
-Timings from `data/run-log.jsonl`, measured from the click:
+One approval, measured from the click:
 
 ```
 approved     +0.00s   APPROVE toddler → kids
-queued       +0.04s   via SNS → SQS
-applied      +0.24s   rule applied
-reindexed    +0.28s   617 products
-verified     +0.28s   +0.0306 measured, +0.0306 predicted
-published    +3.83s   github.com/rohit-gandhe/search-relevance-auditor/pull
-recorded     +4.20s   row appended
-archived     +4.21s   trail posted
+queued       +0.48s   via SNS → SQS
+applied      +0.94s   rule applied
+reindexed    +1.24s   617 products
+verified     +1.48s   +0.0306 measured, +0.0306 predicted
+published    +5.59s   pull/10
+recorded     +6.41s   row appended to the sheet
+archived     +6.64s   trail posted
 ```
 
-**4.21 seconds.** Slack allows three seconds to acknowledge a click. That's why there is a queue.
+**6.64 seconds.** Slack allows three to acknowledge a click. That is the whole
+reason there is a queue — and the pull request is four of those six seconds, so
+the slowest hop is the one furthest from the person waiting.
 
-The prediction held exactly: the gate said +0.0306 on a throwaway index, and a real
-rebuild measured +0.0306.
+The prediction held exactly: the gate said +0.0306 against a throwaway index, and
+the real rebuild measured +0.0306.
+
+Every one of those stages is written to `data/run-log.jsonl` as it happens. That
+file is runtime state rather than a committed artefact, so a clone starts with an
+empty trail and fills it on the first run.
 
 ## Notes
 
@@ -146,7 +152,7 @@ rebuild measured +0.0306.
 git clone https://github.com/rohit-gandhe/search-relevance-auditor
 cd search-relevance-auditor
 
-./gradlew test                                   # 87 tests
+./gradlew test                                   # 88 tests
 ./gradlew run --args="eval"                      # 9 judged queries, mean 0.6949
 ./gradlew run --args='validate "couch|sofa"'     # the gate rejects it, and says why
 ./gradlew run --args='validate "toddler|kids"'   # this one passes

@@ -134,6 +134,23 @@ class DecisionWorkerTest {
     }
 
     @Test
+    void aBaselineTheWorkerDisagreesWithIsReported(@TempDir Path tmp) {
+        // The worker scoring a different baseline from the one the proposal was
+        // measured against means it is not looking at the same rule set — the
+        // failure that otherwise lands in the audit row as a confident +0.0000.
+        RunLog.enable();
+        try {
+            Rig rig = rig(tmp, "C-archive", -1);
+            rig.rules().add("toddler", "kids");        // already applied, as after a bad restart
+            rig.worker().handle(decision("toddler", "kids", Decision.Action.APPROVE));
+            assertEquals(0.0, rig.audit().all().get(0).actualOverall(), 1e-9,
+                    "the delta really is zero when the rule is already in place");
+        } finally {
+            RunLog.disable();
+        }
+    }
+
+    @Test
     void aDelayOfMinusOneKeepsTheApprovalCard(@TempDir Path tmp) {
         Rig rig = rig(tmp, "C-archive", -1);
         rig.worker().handle(decision("toddler", "kids", Decision.Action.APPROVE));
