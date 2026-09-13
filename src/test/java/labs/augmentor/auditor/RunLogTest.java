@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The timeline panel shows one run. The trail it reads from is append-only and
@@ -25,6 +26,16 @@ class RunLogTest {
         }
         Collections.reverse(out);
         return out;
+    }
+
+    private static RunLog.Entry entry(String stage, String message) {
+        return new RunLog.Entry(stage, message, Instant.parse("2026-09-13T20:00:00Z"), Map.of());
+    }
+
+    private static List<String> stages(List<RunLog.Entry> newestFirst) {
+        List<RunLog.Entry> run = new ArrayList<>(RunLog.currentRun(newestFirst, 24));
+        Collections.reverse(run);
+        return run.stream().map(RunLog.Entry::stage).toList();
     }
 
     private static List<String> shown(List<RunLog.Entry> newestFirst) {
@@ -64,6 +75,45 @@ class RunLogTest {
     @Test
     void withNothingRunYetTheStartupMarksAreAllThereIsToShow() {
         assertEquals(List.of("slack", "worker"), shown(trail("slack", "worker")));
+    }
+
+    @Test
+    void theSameStageLoggedTwiceInARowBecomesOneChip() {
+        // The component logs the work and the Lifecycle mark times it, so most
+        // stages arrive twice. Two identical chips read as a repeated run.
+        List<RunLog.Entry> t = new ArrayList<>(List.of(
+                entry("evaluate", "9 queries"),
+                entry("published", "pull request for toddler -> kids"),
+                entry("published", "pull request opened — https://example/pull/3"),
+                entry("archived", "archived")));
+        Collections.reverse(t);
+        assertEquals(List.of("evaluate", "published", "archived"), stages(t));
+    }
+
+    @Test
+    void theLongerOfTwoIsKeptBecauseItCarriesTheDetail() {
+        List<RunLog.Entry> t = new ArrayList<>(List.of(
+                entry("evaluate", "9 queries"),
+                entry("published", "pull request for toddler -> kids"),
+                entry("published", "pull request opened — https://example/pull/3"),
+                entry("archived", "archived")));
+        Collections.reverse(t);
+        List<RunLog.Entry> run = RunLog.currentRun(t, 24);
+        assertTrue(run.stream().anyMatch(e -> e.message().contains("https://example/pull/3")),
+                "the chip that survives should be the one carrying the URL");
+    }
+
+    @Test
+    void aStageThatRepeatsWithDifferentContentIsNotCollapsed() {
+        // One diagnose per candidate query, and they are not adjacent.
+        List<RunLog.Entry> t = new ArrayList<>(List.of(
+                entry("evaluate", "9 queries"),
+                entry("diagnose", "teal chair"),
+                entry("measure", "rejected chair -> armchair"),
+                entry("diagnose", "toddler couch fold out"),
+                entry("archived", "archived")));
+        Collections.reverse(t);
+        assertEquals(List.of("evaluate", "diagnose", "measure", "diagnose", "archived"), stages(t));
     }
 
     @Test

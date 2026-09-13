@@ -134,9 +134,36 @@ public final class RunLog {
             if ("archived".equals(oldestFirst.get(i).stage())) { end = i; break; }
         }
 
-        List<Entry> run = new ArrayList<>(oldestFirst.subList(start, end + 1));
+        List<Entry> run = collapse(oldestFirst.subList(start, end + 1));
         Collections.reverse(run);
         return run.size() > limit ? run.subList(0, limit) : run;
+    }
+
+    /**
+     * One chip per stage, not two.
+     *
+     * Most stages are written twice: once by the component that did the work and
+     * once by the Lifecycle mark that timed it — "pull request for toddler → kids"
+     * immediately followed by "pull request opened — https://...". On the panel
+     * that reads as the same step happening twice, which is indistinguishable from
+     * the trail having kept an earlier run.
+     *
+     * The longer message is kept because it is the one carrying the detail: the
+     * URL, the rule, the measured delta. Stages that legitimately repeat with
+     * different content — a diagnose per candidate query — are not adjacent, so
+     * they survive.
+     */
+    private static List<Entry> collapse(List<Entry> oldestFirst) {
+        List<Entry> out = new ArrayList<>();
+        for (Entry e : oldestFirst) {
+            int last = out.size() - 1;
+            if (last >= 0 && out.get(last).stage().equals(e.stage())) {
+                if (e.message().length() > out.get(last).message().length()) out.set(last, e);
+            } else {
+                out.add(e);
+            }
+        }
+        return out;
     }
 
     public static void clear() {

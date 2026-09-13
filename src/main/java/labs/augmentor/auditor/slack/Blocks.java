@@ -2,7 +2,6 @@ package labs.augmentor.auditor.slack;
 
 import labs.augmentor.auditor.model.*;
 
-import java.time.Duration;
 import java.util.*;
 
 /**
@@ -73,6 +72,59 @@ public final class Blocks {
     }
 
     /**
+     * One flowing line rather than a stacked list: the arrows are the point. A
+     * reader should see the sequence the work actually took, without reading it
+     * as a checklist of things that have not happened.
+     *
+     * No per-stage timing. Nine emoji each trailed by a millisecond pill is a
+     * wall of numbers nobody reads, and it buries the sequence it was meant to
+     * evidence. The real timings are in the run log and the audit row.
+     */
+    public static String trail(List<Lifecycle.Step> steps) {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < steps.size(); i++) {
+            Lifecycle.Step step = steps.get(i);
+            if (i > 0) out.append("  →  ");
+            out.append(step.stage().emoji()).append(" *").append(step.stage().label()).append('*');
+        }
+        return out.toString();
+    }
+
+    /**
+     * The approval card while the work is still running.
+     *
+     * The archive gets the finished trail, but the archive is not where anyone is
+     * looking — the channel they just clicked in is. Repainting the card after
+     * every stage is what makes the asynchrony visible: the queue, the re-index
+     * and the pull request arrive one at a time, on the message they are watching.
+     */
+    public static List<Map<String, Object>> inFlight(Proposal proposal, Validation validation,
+                                                     Decision decision,
+                                                     List<Lifecycle.Step> steps) {
+        List<Map<String, Object>> blocks = new ArrayList<>(decided(proposal, validation, decision));
+        if (!steps.isEmpty()) blocks.add(context(trail(steps)));
+        return blocks;
+    }
+
+    /**
+     * The in-flight card when the stored proposal is not available.
+     *
+     * snapshot.sh clears data/proposals, so a decision still in flight across a
+     * reset has no evidence to redraw. The trail is the part that has to keep
+     * arriving; losing the evidence block is better than losing the sequence.
+     */
+    public static List<Map<String, Object>> inFlight(Decision decision, List<Lifecycle.Step> steps) {
+        List<Map<String, Object>> blocks = new ArrayList<>();
+        blocks.add(section("*`" + decision.change().from() + "` → `" + decision.change().to() + "`*"));
+        blocks.add(context(String.format("%s *%s* by <@%s>",
+                decision.isApproval() ? ":white_check_mark:" : ":no_entry:",
+                decision.isApproval() ? "Approved" : "Rejected",
+                decision.decidedBy())));
+        if (!steps.isEmpty()) blocks.add(context(trail(steps)));
+        return blocks;
+    }
+
+    /**
      * The archive message: the whole lifecycle with real elapsed times, and the
      * measured result next to what the gate predicted.
      */
@@ -98,15 +150,7 @@ public final class Blocks {
                             ? ":white_check_mark: exactly" : ":warning: see the sheet")));
         }
 
-        StringBuilder trail = new StringBuilder();
-        for (Lifecycle.Step step : steps) {
-            trail.append(step.stage().emoji()).append("  ").append(step.stage().label());
-            if (step.detail() != null && !step.detail().isBlank()) {
-                trail.append("  _").append(step.detail()).append('_');
-            }
-            trail.append("   `").append(millis(step.elapsed())).append("`\n");
-        }
-        blocks.add(section(trail.toString().strip()));
+        if (!steps.isEmpty()) blocks.add(section(trail(steps)));
 
         if (pullRequestUrl != null && !pullRequestUrl.isBlank()) {
             blocks.add(context("<" + pullRequestUrl + "|The rule, as code>"));
@@ -150,11 +194,6 @@ public final class Blocks {
         return String.format("%+.4f", value);
     }
 
-    private static String millis(Duration d) {
-        return d.toMillis() < 1000
-                ? d.toMillis() + " ms"
-                : String.format("%.1f s", d.toMillis() / 1000.0);
-    }
 
     private static String truncate(String s, int max) {
         return s.length() <= max ? s : s.substring(0, max - 1) + "…";

@@ -75,6 +75,32 @@ class BlocksTest {
     }
 
     @Test
+    void theTrailIsOneArrowedSequenceNotAStackedList() {
+        Decision decision = Decision.of(PROPOSAL, PASSED, Decision.Action.APPROVE,
+                "U123", "C1", "1789072472.500979");
+        var lifecycle = new labs.augmentor.auditor.slack.Lifecycle();
+        lifecycle.mark(labs.augmentor.auditor.slack.Stage.APPROVED)
+                 .mark(labs.augmentor.auditor.slack.Stage.APPLIED, "toddler → kids")
+                 .mark(labs.augmentor.auditor.slack.Stage.ARCHIVED);
+
+        String json = flatten(Blocks.archive(decision, lifecycle.steps(), 0.0306, 0.7254, null));
+        assertTrue(json.contains("→"), "the stages should be joined by arrows");
+        assertTrue(json.contains(labs.augmentor.auditor.slack.Stage.APPROVED.emoji()),
+                "each stage carries its emoji");
+        assertTrue(json.contains(labs.augmentor.auditor.slack.Stage.ARCHIVED.emoji()));
+    }
+
+    @Test
+    void anEmptyTrailDoesNotPostAnEmptySection() {
+        // Slack rejects a section whose text is blank, and a decision that failed
+        // before its first mark would otherwise take the archive post down with it.
+        Decision decision = Decision.of(PROPOSAL, PASSED, Decision.Action.APPROVE,
+                "U123", "C1", "1789072472.500979");
+        String json = flatten(Blocks.archive(decision, java.util.List.of(), 0.0306, 0.7254, null));
+        assertTrue(json.contains("Predicted"), "the rest of the message still builds");
+    }
+
+    @Test
     void headersAreTruncatedRatherThanRejectedBySlack() {
         String json = Json.write(Blocks.header("x".repeat(400)));
         assertTrue(json.length() < 400, "Slack rejects a header over 150 characters");
